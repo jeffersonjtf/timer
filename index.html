@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Focus Timer</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-work: linear-gradient(135deg, #e8eaf6 0%, #c5cae9 100%);
+    --bg-break: linear-gradient(135deg, #e0f2f1 0%, #b2dfdb 100%);
+    --ring-work: #5c6bc0;
+    --ring-break: #26a69a;
+    --ring-track: #ddd;
+    --text-primary: #263238;
+    --text-secondary: #546e7a;
+    --btn-work: #5c6bc0;
+    --btn-break: #26a69a;
+    --btn-pause: #ff9800;
+    --btn-stop: #ef5350;
+    --btn-resume: #66bb6a;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg-work: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+      --bg-break: linear-gradient(135deg, #004d40 0%, #00695c 100%);
+      --ring-track: #444;
+      --text-primary: #eceff1;
+      --text-secondary: #b0bec5;
+    }
+  }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, 'Nunito', sans-serif;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-work);
+    color: var(--text-primary);
+    transition: background 0.6s ease;
+    padding: clamp(0.3rem, 1.5vw, 1rem);
+    user-select: none;
+    overflow: hidden;
+  }
+
+  body.break-phase {
+    background: var(--bg-break);
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    margin-bottom: clamp(0.15rem, 0.8vw, 0.4rem);
+    position: relative;
+    width: 100%;
+    max-width: 600px;
+    flex-shrink: 0;
+  }
+
+  h1 {
+    font-size: clamp(1.4rem, 4vw, 2.2rem);
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+
+  #mute-btn {
+    position: absolute;
+    right: 0;
+    background: none;
+    border: 2px solid var(--text-secondary);
+    border-radius: 50%;
+    width: clamp(38px, 6vw, 48px);
+    height: clamp(38px, 6vw, 48px);
+    font-size: clamp(1rem, 2.5vw, 1.4rem);
+    cursor: pointer;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.3s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #mute-btn:hover, #mute-btn:focus-visible {
+    border-color: var(--text-primary);
+  }
+
+  #phase-label {
+    font-size: clamp(1.1rem, 3vw, 1.6rem);
+    font-weight: 600;
+    margin-bottom: clamp(0.1rem, 0.5vw, 0.3rem);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    transition: color 0.5s;
+    min-height: 1.5em;
+    flex-shrink: 0;
+  }
+  #phase-label.work { color: var(--btn-work); }
+  #phase-label.break { color: var(--btn-break); }
+
+  /* Ring fills all available vertical space */
+  .timer-ring-wrap {
+    position: relative;
+    flex: 1 1 auto;
+    aspect-ratio: 1;
+    max-height: 70dvh;
+    max-width: 90vw;
+    min-height: 180px;
+    margin-bottom: clamp(0.2rem, 0.5vw, 0.5rem);
+  }
+
+  .timer-ring-wrap svg {
+    transform: rotate(-90deg);
+    width: 100%;
+    height: 100%;
+  }
+
+  .ring-track {
+    fill: none;
+    stroke: var(--ring-track);
+    stroke-width: 12;
+  }
+
+  .ring-progress {
+    fill: none;
+    stroke: var(--ring-work);
+    stroke-width: 12;
+    stroke-linecap: round;
+    transition: stroke 0.5s ease, stroke-dashoffset 0.3s linear;
+  }
+
+  body.break-phase .ring-progress {
+    stroke: var(--ring-break);
+  }
+
+  .timer-digits {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(3rem, 12dvh, 6rem);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 2px;
+    text-align: center;
+    padding: 0.5rem;
+    transition: font-size 0.3s ease;
+  }
+
+  .timer-digits.message {
+    font-size: clamp(1.2rem, 3.5dvh, 2rem);
+    letter-spacing: 0;
+    line-height: 1.3;
+    font-weight: 600;
+  }
+
+  .pulse {
+    animation: pulse-anim 0.6s ease-out;
+  }
+  @keyframes pulse-anim {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.06); }
+    100% { transform: scale(1); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pulse { animation: none; }
+    body, .ring-progress, #phase-label { transition: none; }
+  }
+
+  /* Screens */
+  .screen { display: none; flex-direction: column; align-items: center; width: 100%; flex: 1; justify-content: center; }
+  .screen.active { display: flex; }
+
+  /* Setup screen */
+  .preset-section {
+    margin-bottom: clamp(0.75rem, 2vw, 1.5rem);
+    text-align: center;
+    width: 100%;
+    max-width: 500px;
+  }
+  .preset-section h2 {
+    font-size: clamp(0.95rem, 2.5vw, 1.2rem);
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: clamp(0.3rem, 1vw, 0.6rem);
+  }
+
+  .preset-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: clamp(0.35rem, 1vw, 0.6rem);
+    justify-content: center;
+  }
+
+  .preset-btn {
+    padding: clamp(0.5rem, 1.5vw, 0.8rem) clamp(0.8rem, 2.5vw, 1.4rem);
+    border: 3px solid transparent;
+    border-radius: 14px;
+    font-size: clamp(0.9rem, 2.5vw, 1.15rem);
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.15s, border-color 0.2s, background 0.2s;
+    color: white;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .preset-btn:hover { transform: scale(1.05); }
+  .preset-btn:focus-visible { outline: 3px solid var(--text-primary); outline-offset: 2px; }
+  .preset-btn.work-preset { background: var(--btn-work); }
+  .preset-btn.break-preset { background: var(--btn-break); }
+  .preset-btn.ding-preset { background: #ab47bc; }
+  .preset-btn.round-preset { background: #f4511e; }
+  .preset-btn.selected { border-color: var(--text-primary); transform: scale(1.08); }
+
+  #start-btn {
+    margin-top: clamp(0.5rem, 1.5vw, 1rem);
+    padding: clamp(0.7rem, 2vw, 1rem) clamp(1.5rem, 6vw, 3rem);
+    border: none;
+    border-radius: 16px;
+    font-size: clamp(1.1rem, 3vw, 1.5rem);
+    font-weight: 700;
+    cursor: pointer;
+    background: var(--btn-work);
+    color: white;
+    transition: transform 0.15s, opacity 0.2s;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  #start-btn:disabled { opacity: 0.4; cursor: default; }
+  #start-btn:not(:disabled):hover { transform: scale(1.05); }
+
+  /* Timer controls */
+  .timer-controls {
+    display: flex;
+    gap: clamp(0.5rem, 2vw, 1rem);
+    margin-top: clamp(0.1rem, 0.5vw, 0.3rem);
+    flex-shrink: 0;
+  }
+
+  .ctrl-btn {
+    padding: clamp(0.6rem, 1.5vw, 0.9rem) clamp(1.2rem, 4vw, 2.2rem);
+    border: none;
+    border-radius: 14px;
+    font-size: clamp(1rem, 2.8vw, 1.3rem);
+    font-weight: 700;
+    cursor: pointer;
+    color: white;
+    transition: transform 0.15s;
+    min-width: clamp(90px, 22vw, 140px);
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .ctrl-btn:hover { transform: scale(1.05); }
+  .ctrl-btn:focus-visible { outline: 3px solid var(--text-primary); outline-offset: 2px; }
+
+  .ctrl-btn.pause { background: var(--btn-pause); }
+  .ctrl-btn.resume { background: var(--btn-resume); }
+  .ctrl-btn.stop { background: var(--btn-stop); }
+
+  #round-counter {
+    margin-top: clamp(0.2rem, 0.5vw, 0.4rem);
+    font-size: clamp(0.85rem, 2.2vw, 1.1rem);
+    color: var(--text-secondary);
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  footer {
+    margin-top: clamp(0.3rem, 1vw, 0.75rem);
+    font-size: clamp(0.75rem, 2vw, 0.9rem);
+    color: var(--text-secondary);
+    text-align: center;
+    max-width: 90%;
+    line-height: 1.4;
+    flex-shrink: 0;
+  }
+
+  /* Landscape phones — use height-based sizing */
+  @media (max-height: 500px) and (orientation: landscape) {
+    body { padding-top: 0.15rem; padding-bottom: 0.15rem; }
+    header { margin-bottom: 0.1rem; }
+    #phase-label { margin-bottom: 0.15rem; }
+    .timer-ring-wrap {
+      width: min(50dvh, 240px);
+      height: min(50dvh, 240px);
+      margin-bottom: 0.25rem;
+    }
+    .preset-section { margin-bottom: 0.4rem; }
+    footer { margin-top: 0.25rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Focus Timer</h1>
+  <button id="mute-btn" aria-label="Toggle sound" title="Toggle sound">&#128264;</button>
+</header>
+
+<!-- SETUP SCREEN -->
+<div id="setup-screen" class="screen active">
+  <div class="preset-section">
+    <h2>Rounds</h2>
+    <div class="preset-row" id="round-presets">
+      <button class="preset-btn round-preset" data-rounds="1">1 round</button>
+      <button class="preset-btn round-preset" data-rounds="2">2 rounds</button>
+      <button class="preset-btn round-preset" data-rounds="5">5 rounds</button>
+    </div>
+  </div>
+  <div class="preset-section">
+    <h2>Focus Time</h2>
+    <div class="preset-row" id="work-presets">
+      <button class="preset-btn work-preset" data-minutes="1">1 min</button>
+      <button class="preset-btn work-preset" data-minutes="15">15 min</button>
+      <button class="preset-btn work-preset" data-minutes="20">20 min</button>
+      <button class="preset-btn work-preset" data-minutes="25">25 min</button>
+      <button class="preset-btn work-preset" data-minutes="30">30 min</button>
+      <button class="preset-btn work-preset" data-minutes="45">45 min</button>
+    </div>
+  </div>
+  <div class="preset-section">
+    <h2>Break Time</h2>
+    <div class="preset-row" id="break-presets">
+      <button class="preset-btn break-preset" data-minutes="1">1 min</button>
+      <button class="preset-btn break-preset" data-minutes="5">5 min</button>
+      <button class="preset-btn break-preset" data-minutes="10">10 min</button>
+      <button class="preset-btn break-preset" data-minutes="15">15 min</button>
+    </div>
+  </div>
+  <div class="preset-section">
+    <h2>Alert Dings</h2>
+    <div class="preset-row" id="ding-presets">
+      <button class="preset-btn ding-preset" data-dings="1">1 ding</button>
+      <button class="preset-btn ding-preset" data-dings="3">3 dings</button>
+      <button class="preset-btn ding-preset" data-dings="5">5 dings</button>
+      <button class="preset-btn ding-preset" data-dings="10">10 dings</button>
+    </div>
+  </div>
+  <button id="start-btn" disabled>Start</button>
+</div>
+
+<!-- TIMER SCREEN -->
+<div id="timer-screen" class="screen">
+  <div id="phase-label" class="work">Focus Time</div>
+  <div class="timer-ring-wrap" id="ring-wrap">
+    <svg viewBox="0 0 200 200">
+      <circle class="ring-track" cx="100" cy="100" r="88"/>
+      <circle class="ring-progress" id="ring-progress" cx="100" cy="100" r="88"/>
+    </svg>
+    <div class="timer-digits" id="timer-digits">00:00</div>
+  </div>
+  <div class="timer-controls">
+    <button class="ctrl-btn pause" id="pause-btn">Pause</button>
+    <button class="ctrl-btn stop" id="stop-btn">Stop</button>
+  </div>
+  <div id="round-counter">Round 1</div>
+</div>
+
+<footer>
+  Pick your focus time and break time, then press Start!<br>
+  Focus hard, then enjoy your break.
+</footer>
+
+<script>
+(function() {
+  // Elements
+  const setupScreen = document.getElementById('setup-screen');
+  const timerScreen = document.getElementById('timer-screen');
+  const startBtn = document.getElementById('start-btn');
+  const pauseBtn = document.getElementById('pause-btn');
+  const stopBtn = document.getElementById('stop-btn');
+  const muteBtn = document.getElementById('mute-btn');
+  const phaseLabel = document.getElementById('phase-label');
+  const timerDigits = document.getElementById('timer-digits');
+  const ringProgress = document.getElementById('ring-progress');
+  const ringWrap = document.getElementById('ring-wrap');
+  const roundCounter = document.getElementById('round-counter');
+
+  // Ring math
+  const RADIUS = 88;
+  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+  ringProgress.style.strokeDasharray = CIRCUMFERENCE;
+  ringProgress.style.strokeDashoffset = CIRCUMFERENCE;
+
+  // Transition messages
+  // Focus→Break: validating effort, signaling a safe shift to rest
+  // Based on self-determination theory (autonomy, competence) and
+  // social stories approach (clear, predictable language for autism)
+  const focusToBreakMessages = [
+    "You did it!\nTime to rest.",
+    "Great focus!\nBreak time.",
+    "Well done!\nYou earned a break.",
+    "Awesome work!\nTime to recharge.",
+    "You stayed strong!\nRelax now.",
+    "So proud of you!\nTake a break.",
+    "Amazing effort!\nTime to breathe.",
+    "You crushed it!\nEnjoy your break.",
+    "Hard work done!\nFree time now.",
+    "Wonderful job!\nRest your brain.",
+  ];
+
+  // Break→Focus: gentle preparation, building confidence for next task
+  // Uses predictable phrasing and encouraging autonomy (not demanding)
+  const breakToFocusMessages = [
+    "Feeling rested?\nLet's go!",
+    "Break is done.\nYou're ready!",
+    "Recharged!\nTime to focus.",
+    "You got this!\nFocus time.",
+    "Ready, set...\nLet's begin!",
+    "Break over.\nYou can do it!",
+    "Refreshed!\nBack to work.",
+    "All rested up!\nLet's do this.",
+    "Deep breath...\nHere we go!",
+    "Powered up!\nFocus time.",
+  ];
+
+  function getRandomMessage(arr) {
+    return arr[Math.floor(Math.random() * arr.length)];
+  }
+
+  // State
+  let workMinutes = null;
+  let breakMinutes = null;
+  let totalSeconds = 0;
+  let remainingSeconds = 0;
+  let timerInterval = null;
+  let isPaused = false;
+  let isWorkPhase = true;
+  let round = 1;
+  let maxRounds = null; // null = unlimited
+  let dingCount = 3;
+  let isMuted = localStorage.getItem('timer-muted') === 'true';
+
+  // Audio context (lazy init)
+  let audioCtx = null;
+
+  // Each ding is a two-tone chime lasting ~0.75s, spaced 2s apart
+  // 2s spacing is recommended for neurodivergent children:
+  // allows full auditory processing (autism) and distinct attention cues (ADHD)
+  const DING_DURATION = 0.75;
+  const DING_SPACING = 3.0;
+
+  function getDingsTotalDuration() {
+    return DING_DURATION + (dingCount - 1) * DING_SPACING;
+  }
+
+  function playSingleDing() {
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      [0, 0.15].forEach((offset, i) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = i === 0 ? 523.25 : 659.25; // C5, E5
+        const t = audioCtx.currentTime + offset;
+        gain.gain.setValueAtTime(0.18, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+        osc.start(t);
+        osc.stop(t + 0.6);
+      });
+    } catch(e) { /* audio not supported */ }
+  }
+
+  function pulseRing() {
+    ringWrap.classList.remove('pulse');
+    // Force reflow so the animation restarts even if already applied
+    void ringWrap.offsetWidth;
+    ringWrap.classList.add('pulse');
+  }
+
+  function playChime() {
+    let played = 0;
+    function nextDing() {
+      if (played >= dingCount) return;
+      if (!isMuted) playSingleDing();
+      pulseRing();
+      played++;
+      if (played < dingCount) {
+        setTimeout(nextDing, DING_SPACING * 1000);
+      }
+    }
+    nextDing();
+  }
+
+  // Mute
+  updateMuteIcon();
+  function updateMuteIcon() {
+    muteBtn.textContent = isMuted ? '\u{1F507}' : '\u{1F509}';
+    muteBtn.setAttribute('aria-label', isMuted ? 'Unmute sound' : 'Mute sound');
+  }
+  muteBtn.addEventListener('click', () => {
+    isMuted = !isMuted;
+    localStorage.setItem('timer-muted', isMuted);
+    updateMuteIcon();
+  });
+
+  // Preset selection
+  let selectedWork = localStorage.getItem('timer-work');
+  let selectedBreak = localStorage.getItem('timer-break');
+  let selectedDings = localStorage.getItem('timer-dings');
+  let selectedRounds = localStorage.getItem('timer-rounds');
+
+  function setupPresets(containerId, type) {
+    const container = document.getElementById(containerId);
+    const saved = type === 'work' ? selectedWork
+                : type === 'break' ? selectedBreak
+                : type === 'dings' ? selectedDings
+                : selectedRounds;
+    const dataAttr = type === 'dings' ? 'dings' : type === 'rounds' ? 'rounds' : 'minutes';
+    container.querySelectorAll('.preset-btn').forEach(btn => {
+      if (btn.dataset[dataAttr] === saved) {
+        btn.classList.add('selected');
+        if (type === 'work') workMinutes = parseInt(saved);
+        else if (type === 'break') breakMinutes = parseInt(saved);
+        else if (type === 'dings') dingCount = parseInt(saved);
+        else maxRounds = parseInt(saved);
+      }
+      btn.addEventListener('click', () => {
+        container.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        const val = parseInt(btn.dataset[dataAttr]);
+        if (type === 'work') { workMinutes = val; localStorage.setItem('timer-work', val); }
+        else if (type === 'break') { breakMinutes = val; localStorage.setItem('timer-break', val); }
+        else if (type === 'dings') { dingCount = val; localStorage.setItem('timer-dings', val); }
+        else { maxRounds = val; localStorage.setItem('timer-rounds', val); }
+        startBtn.disabled = !(workMinutes && breakMinutes);
+      });
+    });
+  }
+  setupPresets('round-presets', 'rounds');
+  setupPresets('work-presets', 'work');
+  setupPresets('break-presets', 'break');
+  setupPresets('ding-presets', 'dings');
+  startBtn.disabled = !(workMinutes && breakMinutes);
+
+  // Default dings selection if none saved
+  if (!selectedDings) {
+    dingCount = 3;
+    const defaultDingBtn = document.querySelector('#ding-presets [data-dings="3"]');
+    if (defaultDingBtn) defaultDingBtn.classList.add('selected');
+  }
+
+  // Start
+  startBtn.addEventListener('click', () => {
+    if (!workMinutes || !breakMinutes) return;
+    round = 1;
+    isWorkPhase = true;
+    showTimerScreen();
+    startPhase();
+  });
+
+  const allDoneMessages = [
+    "All done!\nGreat job today!",
+    "You finished!\nSo proud of you!",
+    "All rounds done!\nAmazing work!",
+    "You did it all!\nTime to celebrate!",
+    "Mission complete!\nWell done!",
+  ];
+
+  function showTimerScreen() {
+    setupScreen.classList.remove('active');
+    timerScreen.classList.add('active');
+  }
+
+  function showSetupScreen() {
+    timerScreen.classList.remove('active');
+    setupScreen.classList.add('active');
+    document.body.classList.remove('break-phase');
+  }
+
+  function startPhase() {
+    isPaused = false;
+    totalSeconds = (isWorkPhase ? workMinutes : breakMinutes) * 60;
+    remainingSeconds = totalSeconds;
+
+    // Update UI for phase
+    if (isWorkPhase) {
+      phaseLabel.textContent = 'Focus Time';
+      phaseLabel.className = 'work';
+      document.body.classList.remove('break-phase');
+    } else {
+      phaseLabel.textContent = 'Break Time';
+      phaseLabel.className = 'break';
+      document.body.classList.add('break-phase');
+    }
+
+    roundCounter.textContent = maxRounds ? `Round ${round} of ${maxRounds}` : `Round ${round}`;
+    pauseBtn.textContent = 'Pause';
+    pauseBtn.className = 'ctrl-btn pause';
+    updateDisplay();
+
+    clearInterval(timerInterval);
+    timerInterval = setInterval(tick, 1000);
+  }
+
+  function tick() {
+    if (isPaused) return;
+    remainingSeconds--;
+    updateDisplay();
+    if (remainingSeconds <= 0) {
+      clearInterval(timerInterval);
+      // Show transition message inside the circle
+      const messages = isWorkPhase ? focusToBreakMessages : breakToFocusMessages;
+      timerDigits.innerHTML = getRandomMessage(messages).replace('\n', '<br>');
+      timerDigits.classList.add('message');
+      playChime();
+      // Wait for all dings to finish, then transition
+      const waitMs = (getDingsTotalDuration() + 0.5) * 1000;
+      setTimeout(() => {
+        timerDigits.classList.remove('message');
+        if (isWorkPhase) {
+          isWorkPhase = false;
+        } else {
+          // Break just finished — check if we've hit the round limit
+          if (maxRounds && round >= maxRounds) {
+            // All rounds complete — show a final message then return to setup
+            timerDigits.innerHTML = getRandomMessage(allDoneMessages).replace('\n', '<br>');
+            timerDigits.classList.add('message');
+            playChime();
+            setTimeout(() => {
+              timerDigits.classList.remove('message');
+              showSetupScreen();
+            }, (getDingsTotalDuration() + 1.5) * 1000);
+            return;
+          }
+          isWorkPhase = true;
+          round++;
+        }
+        startPhase();
+      }, waitMs);
+    }
+  }
+
+  function updateDisplay() {
+    const mins = Math.floor(remainingSeconds / 60);
+    const secs = remainingSeconds % 60;
+    timerDigits.textContent = String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+
+    // Ring progress
+    const fraction = 1 - (remainingSeconds / totalSeconds);
+    const offset = CIRCUMFERENCE * (1 - fraction);
+    ringProgress.style.strokeDashoffset = offset;
+  }
+
+  // Pause / Resume
+  pauseBtn.addEventListener('click', () => {
+    if (isPaused) {
+      isPaused = false;
+      pauseBtn.textContent = 'Pause';
+      pauseBtn.className = 'ctrl-btn pause';
+    } else {
+      isPaused = true;
+      pauseBtn.textContent = 'Resume';
+      pauseBtn.className = 'ctrl-btn resume';
+    }
+  });
+
+  // Stop
+  stopBtn.addEventListener('click', () => {
+    clearInterval(timerInterval);
+    showSetupScreen();
+  });
+
+  // Keyboard: Space to pause/resume when timer is active
+  document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && timerScreen.classList.contains('active')) {
+      e.preventDefault();
+      pauseBtn.click();
+    }
+  });
+})();
+</script>
+</body>
+</html>
