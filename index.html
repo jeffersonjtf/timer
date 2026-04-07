@@ -169,8 +169,22 @@
     100% { transform: scale(1); }
   }
 
+  /* Last-5-seconds countdown: large amber digit, subtle pulse per second */
+  .timer-digits.countdown {
+    font-size: clamp(5rem, 18dvh, 9rem);
+    color: #f57c00;
+    letter-spacing: 0;
+    animation: countdown-pulse 0.5s ease-out;
+  }
+  @keyframes countdown-pulse {
+    0%   { transform: scale(1); }
+    40%  { transform: scale(1.04); }
+    100% { transform: scale(1); }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .pulse { animation: none; }
+    .timer-digits.countdown { animation: none; }
     body, .ring-progress, #phase-label { transition: none; }
   }
 
@@ -470,6 +484,26 @@
     } catch(e) { /* audio not supported */ }
   }
 
+  function playWarningDing() {
+    // Soft pre-end ding at 3 seconds remaining — half the volume of playSingleDing
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      [0, 0.15].forEach((offset, i) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = i === 0 ? 523.25 : 659.25; // same C5, E5 tones
+        const t = audioCtx.currentTime + offset;
+        gain.gain.setValueAtTime(0.08, t);  // half volume — calm, not startling
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+        osc.start(t);
+        osc.stop(t + 0.6);
+      });
+    } catch(e) { /* audio not supported */ }
+  }
+
   function pulseRing() {
     ringWrap.classList.remove('pulse');
     // Force reflow so the animation restarts even if already applied
@@ -596,6 +630,7 @@
     roundCounter.textContent = maxRounds ? `Round ${round} of ${maxRounds}` : `Round ${round}`;
     pauseBtn.textContent = 'Pause';
     pauseBtn.className = 'ctrl-btn pause';
+    timerDigits.classList.remove('countdown');
     updateDisplay();
 
     clearInterval(timerInterval);
@@ -605,6 +640,21 @@
   function tick() {
     if (isPaused) return;
     remainingSeconds--;
+
+    // Last-5-seconds countdown: show large amber digit, soft ding at 3
+    if (remainingSeconds > 0 && remainingSeconds <= 5) {
+      timerDigits.textContent = remainingSeconds;
+      timerDigits.classList.remove('countdown');
+      void timerDigits.offsetWidth;  // force reflow to restart animation each second
+      timerDigits.classList.add('countdown');
+      if (remainingSeconds === 3 && !isMuted) playWarningDing();
+      // Keep ring progressing normally
+      const fraction = 1 - (remainingSeconds / totalSeconds);
+      ringProgress.style.strokeDashoffset = CIRCUMFERENCE * (1 - fraction);
+      return;
+    }
+    timerDigits.classList.remove('countdown');
+
     updateDisplay();
     if (remainingSeconds <= 0) {
       clearInterval(timerInterval);
@@ -613,8 +663,8 @@
       timerDigits.innerHTML = getRandomMessage(messages).replace('\n', '<br>');
       timerDigits.classList.add('message');
       playChime();
-      // Wait for all dings to finish, then transition
-      const waitMs = (getDingsTotalDuration() + 0.5) * 1000;
+      // Wait for dings to finish + 30s reading time, then transition
+      const waitMs = (getDingsTotalDuration() + 30) * 1000;
       setTimeout(() => {
         timerDigits.classList.remove('message');
         if (isWorkPhase) {
@@ -629,7 +679,7 @@
             setTimeout(() => {
               timerDigits.classList.remove('message');
               showSetupScreen();
-            }, (getDingsTotalDuration() + 1.5) * 1000);
+            }, (getDingsTotalDuration() + 30) * 1000);
             return;
           }
           isWorkPhase = true;
